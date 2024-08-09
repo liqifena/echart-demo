@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D 螺旋温度云图 - ECharts GL</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.3.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts-gl@2.0.9/dist/echarts-gl.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      #main {
+        width: 100%;
+        height: 80vh;
+      }
+      .controls {
+        margin: 10px 0;
+        display: flex;
+        gap: 10px;
+      }
+      .controls input {
+        padding: 5px;
+        width: 100px;
+      }
+      .controls button {
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .legend {
+        margin: 10px 0;
+        display: flex;
+        gap: 10px;
+      }
+      .legend div {
+        padding: 5px;
+        border-radius: 5px;
+        color: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="main"></div>
+    <div class="legend">
+      <div style="background-color: blue">低温</div>
+      <div style="background-color: green">中低温</div>
+      <div style="background-color: yellow">中温</div>
+      <div style="background-color: orange">中高温</div>
+      <div style="background-color: red">高温</div>
+    </div>
+    <script type="text/javascript">
+      var chart = echarts.init(document.getElementById("main"))
+
+      function createSpiralPath(radius, length, turns, pointsPerTurn) {
+        const points = []
+        const totalPoints = turns * pointsPerTurn
+        const heightIncrement = length / totalPoints
+
+        for (let i = 0; i < totalPoints; i++) {
+          const theta = (i / pointsPerTurn) * 2 * Math.PI
+          const x = radius * Math.cos(theta)
+          const y = heightIncrement * i
+          const z = radius * Math.sin(theta)
+          //const temperature = 100 * (i / totalPoints);//按照点生成有低到高的温度
+          const temperature = Math.random() * 100 // 生成 0 到 100 的随机温度
+          points.push([x, y, z, temperature])
+        }
+        return points
+      }
+
+      function setChartOption({
+        data: spiralData,
+        min,
+        max,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+        zmin,
+        zmax,
+      }) {
+        const option = {
+          title: {
+            text: "3D螺旋温度云图",
+          },
+          tooltip: {},
+          xAxis3D: {
+            type: "value",
+            min: xmin,
+            max: xmax,
+          },
+          yAxis3D: {
+            type: "value",
+            min: ymin,
+            max: ymax,
+          },
+          zAxis3D: {
+            type: "value",
+            min: zmin,
+            max: zmax,
+          },
+          grid3D: {
+            viewControl: {
+              projection: "perspective",
+            },
+            boxWidth: 10,
+            boxHeight: 10,
+            boxDepth: 30,
+          },
+          tooltip: {
+            formatter: function (params) {
+              const [x, y, z, temperature] = params.value
+              const temperature1 = interpolateTemperature(
+                params.value[0],
+                params.value[1],
+                spiralData
+              )
+              return `坐标: (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(
+                2
+              )})<br/>温度: ${temperature1.toFixed(2)} ℃`
+            },
+          },
+          // visualMap: {
+          //     min: min,
+          //     max: max,
+          //     //dimension: 5, // 指定温度数据的维度索引
+          //     calculable: true,
+          //     inRange: {
+          //         color: ['#4FA74C', '#FEFE4C', '#FF504C'] // 温度对应的颜色范围
+          //     },
+          //     text: ['High Temp', 'Low Temp'], // 文本标签
+          //     orient: 'vertical', // 垂直方向展示
+          //     left: 'left', // 图例位置
+          //     top: 'bottom' // 图例位置
+          // },
+          series: [
+            {
+              type: "surface",
+              parametric: true,
+              shading: "color",
+              wireframe: {
+                show: false, // 隐藏网格线
+              },
+              parametricEquation: {
+                u: {
+                  min: 0,
+                  max: 2 * Math.PI,
+                  step: Math.PI / 9, //插值步长可以根据实际调整
+                },
+                v: {
+                  min: 0,
+                  max: 24,
+                  step: 1, //插值步长可以根据实际调整
+                },
+                x: function (u, v) {
+                  return 3 * Math.cos(u) // 圆柱的半径为 3
+                },
+                y: function (u, v) {
+                  return v // 高度变化从 0 到 24
+                },
+                z: function (u, v) {
+                  return 3 * Math.sin(u) // 圆柱的半径为 3
+                },
+                t: function (u, v) {
+                  return interpolateTemperature(u, v, spiralData)
+                },
+              },
+              itemStyle: {
+                color: function (params) {
+                  const temperature = interpolateTemperature(
+                    params.value[0],
+                    params.value[1],
+                    spiralData
+                  )
+                  return getTemperatureColor(temperature)
+                },
+              },
+            },
+          ],
+        }
+
+        chart.setOption(option)
+      }
+      function interpolateColor(color1, color2, factor) {
+        if (factor === undefined) factor = 0.5
+        const result = color1.slice()
+        for (let i = 0; i < 3; i++) {
+          result[i] = Math.round(result[i] + factor * (color2[i] - color1[i]))
+        }
+        return result
+      }
+
+      function getColorForTemperature(value, min, max) {
+        // 颜色定义
+        const startColor = [79, 255, 76] // rgb(79,255,76)
+        const midColor = [255, 255, 76] // rgb(255,255,76)
+        const endColor = [255, 80, 76] // rgb(255,80,76)
+
+        // 将温度映射到0到1之间
+        let factor = (value - min) / (max - min)
+
+        let color
+        if (factor <= 0.5) {
+          // 前半部分：startColor 到 midColor
+          factor *= 2 // 调整范围为0到1
+          color = interpolateColor(startColor, midColor, factor)
+        } else {
+          // 后半部分：midColor 到 endColor
+          factor = (factor - 0.5) * 2 // 调整范围为0到1
+          color = interpolateColor(midColor, endColor, factor)
+        }
+
+        return `rgb(${color[0]},${color[1]},${color[2]})`
+      }
+      function getTemperatureColor(temperature) {
+        const minTemp = min
+        const maxTemp = max
+        const color = getColorForTemperature(temperature, min, max)
+        console.log(color, "color")
+        return color
+        // const normalizedTemp = (temperature - minTemp) / (maxTemp - minTemp)
+        // //rgb(79,255,76) rgb(255,255,76) rgb(255,80,76)
+        // if (normalizedTemp <= 0.33) {
+        //   return `rgb(0, ${Math.round(255 * normalizedTemp * 2)}, 0)`
+        // } else if (normalizedTemp <= 0.66) {
+        //   return `rgb(${Math.round(
+        //     255 * (normalizedTemp - 0.33) * 3
+        //   )}, ${Math.round(255 * (1 - (normalizedTemp - 0.33) * 3))}, 0)`
+        // } else {
+        //   return `rgb(255, ${Math.round(
+        //     255 * (1 - (normalizedTemp - 0.66) * 3)
+        //   )}, 0)`
+        // }
+      }
+
+      function interpolateTemperature(u, v, spiralData) {
+        let closestPoint = null
+        let minDistance = Infinity
+
+        const x = 3 * Math.cos(u)
+        const y = v
+        const z = 3 * Math.sin(u)
+
+        // 寻找距离 (x, y, z) 最近的点
+        spiralData.forEach(point => {
+          const dx = x - point[0]
+          const dy = y - point[1]
+          const dz = z - point[2]
+          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+
+          if (distance < minDistance) {
+            minDistance = distance
+            closestPoint = point
+          }
+        })
+
+        const interpolatedTemp = closestPoint[3]
+
+        // 输出插值后的坐标和温度
+        console.log(
+          `Coordinates: (${x}, ${y}, ${z}) - Interpolated Temperature: ${interpolatedTemp}`
+        )
+
+        return interpolatedTemp
+      }
+
+      const radius = 3
+      const length = 24
+      const turns = 16
+      const pointsPerTurn = 30
+      const data = createSpiralPath(radius, length, turns, pointsPerTurn)
+      function updateMinMax(value, currentMin, currentMax) {
+        if (currentMin === null) {
+          return { min: Math.floor(value), max: Math.ceil(value) }
+        }
+        return {
+          min: Math.floor(currentMin > value ? value : currentMin),
+          max: Math.ceil(currentMax < value ? value : currentMax),
+        }
+      }
+
+      let min = null
+      let max = null
+      let { min: xmin, max: xmax } = { min: null, max: null }
+      let { min: ymin, max: ymax } = { min: null, max: null }
+      let { min: zmin, max: zmax } = { min: null, max: null }
+
+      data.forEach(item => {
+        ;({ min, max } = updateMinMax(item[3], min, max))
+        ;({ min: xmin, max: xmax } = updateMinMax(item[0], xmin, xmax))
+        ;({ min: ymin, max: ymax } = updateMinMax(item[1], ymin, ymax))
+        ;({ min: zmin, max: zmax } = updateMinMax(item[2], zmin, zmax))
+      })
+      setChartOption({ data, min, max, xmin, xmax, ymin, ymax, zmin, zmax })
+    </script>
+  </body>
+</html>
